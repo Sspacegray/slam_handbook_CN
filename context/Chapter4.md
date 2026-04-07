@@ -2,9 +2,13 @@
 
 ### 本章概览
 
-深度学习与几何优化的融合，已经成为现代 `SLAM` 的重要趋势。本章讨论的核心问题是: 当系统里既有 neural networks，又有 `nonlinear least squares (NLS)` 优化模块时，如何把后者也变成可微的，使整个系统能够端到端训练。
+正如第 1 章所述，现代 `SLAM` 系统通常遵循 front-end / back-end 架构。前端负责预处理 sensor data，并给出机器人轨迹和环境地图的初始估计；后端则通过求解优化问题，对这些初始估计进行精化，以提升整体精度。近年来，machine learning 尤其是 deep neural networks，为 `SLAM` 前端中的若干功能提供了新的实现方式，例如 feature detection / matching [970, 267, 1266] 与 front-end motion estimation [1166, 1081]。这些方法通过大规模数据训练神经网络，在没有被显式编程执行任务的情况下完成估计。与此同时，geometry-based techniques 仍然是 `SLAM` 后端不可替代的核心组成部分，因为它们在求解优化问题、从而产生 globally consistent estimates 方面仍然具有通用性和有效性 [1207]。
 
-更具体地说，本章说明如何对 `SLAM` 中常见的非线性最小二乘问题求导；这使得上层学习模块能够通过优化器返回的几何解，反向更新其参数，从而利用几何先验改进学习效果。
+原则上，我们当然可以把 learning-based `SLAM` front-end 的输出直接“接”到 back-end 上，但 learning-based techniques 的引入实际上打开了一个不再单向传递信息的接口：back-end 的几何优化结果也可以反过来为前端学习提供 supervisory signal。于是，整个问题自然可以被表述为一个 `bilevel optimization`：上层是 neural-network-based optimization，用来训练前端；下层则是 geometry-based optimization，用来根据给定前端输出求出 `SLAM` 解。能够 end-to-end 地穿过优化器计算 gradients，正是求解这类 bilevel optimization 的核心；它使神经模型能够利用优化器中蕴含的 geometric priors。这样的灵活性已经在 structure from motion [1079]、motion planning [81, 1215]、`SLAM` [511, 1081]、`BA` [1067, 1266]、state estimation [1243, 182] 和 image alignment [715] 等广泛问题上带来了有前景的最新结果。
+
+图 `4.1` 说明，现代 `SLAM` 系统往往同时包含 neural networks 与 nonlinear least squares。若把这两个模块分开优化，往往会引入 compound errors；因此，更理想的做法是把整个系统表述为 end-to-end 的 `bilevel optimization`，同时包含 upper-level cost 与 lower-level cost。
+
+本章将介绍如何对 `SLAM` 中常见的 `nonlinear least squares (NLS)` 问题求导。具体来说，`4.1` 先回顾 `NLS` 问题本身；`4.2` 讨论如何穿过 `NLS` 做微分；`4.3` 说明如何对定义在 manifold 上的问题求导；`4.4` 讨论上述微分过程的数值挑战，并介绍相关 machine learning libraries；最后，`4.5` 给出当代 `SLAM` 系统中 differentiable optimization 的实例与趋势。
 
 ## 4.1 非线性最小二乘回顾
 
@@ -323,6 +327,26 @@ left-⊖  : ε  = χ2 ⊖ χ1 ≜ Log(χ2 ◦ χ1⁻¹)                     (4.2
 它把 `τ` 的变化映射到流形的全局切空间中。
 
 这些结果的意义在于，流形上的求导并不只是抽象地“把变量看成 pose”那么简单，而是需要为 inversion、composition、`Exp` / `Log` 等基本运算都建立正确的 Jacobian 表达。只有这样，`SLAM` 中的 differentiable optimization 才能真正用链式法则在流形上稳定工作，而不是把位姿变量粗暴塞回普通 Euclidean 向量空间去处理。
+
+作者接着指出，`group action` 的 Jacobian 还取决于具体作用到的对象 `v ∈ V`。若群作用写作 `χ · v`，则可定义关于群变量与被作用变量的 Jacobian：
+
+`J_(χ·v)^χ ≜ D(χ · v) / Dχ`                                                       `(4.37a)`
+
+`J_(χ·v)^v ≜ D(χ · v) / Dv`                                                       `(4.37b)`
+
+其中 `χ ∈ M`，`v ∈ V`。这类 Jacobian 在实际系统中很常见，因为状态变量往往并不是彼此直接相加，而是通过群作用去变换点、方向或局部坐标。
+
+`Example 4.5 (Robot Arm)`：考虑一个有两个关节的机械臂，两个关节旋转 `R1` 与 `R2` 都属于 `SO(3)`，末端执行器的最终姿态由两者复合得到：
+
+`R = R1 ◦ R2`                                                                     `(4.38)`
+
+若要分析 `R1` 与 `R2` 的微小扰动如何影响最终姿态 `R`，就可以直接使用 composition Jacobian：
+
+`∂(R1 ◦ R2) / ∂R1 = lim_(τ→0) ((R2^(-1) τ^∧ R2)^∨ / τ)`                          `(4.39)`
+
+`∂(R1 ◦ R2) / ∂R2 = I`
+
+这个例子说明，对第一关节 `R1` 的调整，会通过由第二关节当前状态决定的变换影响最终姿态 `R`；而第二关节 `R2` 的变化则会直接作用到 `R`，不受第一关节 `R1` 影响。
 
 ## 4.4 自动微分与现代库的数值挑战
 

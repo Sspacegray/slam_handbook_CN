@@ -10,6 +10,8 @@
 
 本节的核心观点是: 在大多数 `SLAM` 应用里，outliers 几乎不可完全避免；若不做恰当处理，它们会导致估计结果出现灾难性偏差。
 
+这里原书也特别说明：虽然为便于表述，式 `(3.1)` 假设 measurements 属于向量空间，但本章讨论的算法适用于变量位于流形上的一般 `SLAM` 问题，参见第 `2` 章。
+
 ### 3.1.1 数据关联与离群点
 
 理解 outliers 的最好方式，是先看数据关联问题。在 landmark-based `SLAM` 中，机器人需要根据 odometry 与对 landmarks 的相对观测，同时恢复自身轨迹和外部 landmarks 的位置。如果这些观测被建模为零均值 Gaussian，那么每一条观测都会对应一个标准的误差项。
@@ -28,6 +30,8 @@
 
 书中的实验例子表明，无论是模拟的 `M3500` pose-graph benchmark、真实的 `SubT` 地下隧道数据集，还是 `Victoria Park` landmark-SLAM 数据集，只要混入一定比例的 outliers，普通 least squares 都会产生严重错误的轨迹与地图。甚至环境中的感知混淆还会通过这些错误测量被“固化”为错误地图结构。
 
+图 `3.1` 展示了带 outliers 的 `SLAM` 问题：`(a)-(c)` 分别是 `M3500`、`SubT` 与 `Victoria Park` 数据集的 ground-truth trajectories；`(d)-(f)` 则是在存在 outliers 时，使用 least-squares formulation 得到的轨迹估计。图中 inlier measurements 用灰色边表示，outliers 用红色边表示；对 `SubT` 数据集，图里还额外可视化了由该 `SLAM` 位姿估计构建出的稠密地图。
+
 ## 3.2 在 SLAM 前端中检测并剔除离群点
 
 `SLAM front-end` 的主要职责，是把原始传感器数据处理成可供后端使用的中间表示或伪测量。典型 front-end 通常先生成一批候选 measurements，其中往往含有不少 outliers；然后再通过额外的筛选步骤，把 gross outliers 在进入 `back-end` 之前剔除掉。
@@ -38,6 +42,8 @@
 
 `RANSAC` 是最成熟、最常见的 outlier rejection 工具之一，也是许多 landmark-based `SLAM` 系统前端中的关键组成部分。为了理解它在 `SLAM` 里的作用，书中以 feature-based visual `SLAM` 为例: 系统在每一帧图像中提取 `2D` 特征点，再通过 optical-flow tracking 或 descriptor matching，把当前帧与前一帧中的像素配对，形成 `2D-2D correspondences`。由于跟踪和匹配本身会出错，这一初始对应集里天然会混入 outliers，因此在把这些 correspondences 送入后端之前，必须先尽量剔除明显错误的匹配。
 
+图 `3.2` 展示了 visual `SLAM` 中跨三个帧 `k-2`、`k-1` 与 `k` 的 feature tracking。绿色表示 inliers，也就是持续对应同一个静态 `3D` 点的像素；红色表示 outliers。
+
 `RANSAC` 依赖两个核心观察。第一个观察是，在 `SLAM` 问题里，正确的 inlier correspondences 必须满足几何约束。以上述视觉例子为例，若匹配像素来自同一个静态 `3D` 点，那么它们在两帧中的运动不可能任意，而必须满足 `epipolar constraint`。对标定好的相机而言，若 `z_i(k-1)` 和 `z_i(k)` 表示地标 `i` 在时刻 `k-1` 与 `k` 的像素坐标，则有
 
 `z_i(k-1)^T [t_k^{k-1}]_x R_k^{k-1} z_i(k) = 0`
@@ -47,6 +53,8 @@
 `C(z_i, x) ≤ γ`
 
 这里 `x` 是局部状态变量，`γ` 是为噪声预留的容忍阈值。也就是说，inliers 必须对同一个状态 `x` 保持一致。
+
+当然，不同问题会对应不同的几何约束。好在机器人与计算机视觉文献中，已经系统研究了各类传感器测量所诱导的几何关系；本节只是以 `2D-2D correspondences` 及其在计算机视觉 `2-view geometry` 中的约束为例，相关内容可参考 [437]。
 
 第二个观察是，只要 outliers 的比例没有高到失控，我们就可以把 inliers 理解成“在同一个状态 `x` 下满足几何约束的最大 measurement subset”。这就对应计算机视觉中的 `consensus maximization` 问题: 在所有候选 correspondences `M` 中，寻找最大的子集 `S`，使得其中所有观测都与同一个 `x` 相容。该问题本质上是组合优化，直接精确求解代价太高，因此前端通常不会真的去穷举所有子集。
 
@@ -83,6 +91,10 @@
 
 这个约束不需要先求出相机运动，就能直接判断两条 correspondences 是否相容。第二个例子来自 `pose-graph SLAM`。若两条 loop closures 都正确，那么它们与中间的 odometry 链围成闭环后，整体复合应接近单位位姿，也就是说，闭环变换与 `identity` 之间的距离应小于某个阈值。
 
+图 `3.3` 给出了这两个例子的可视化：`(a)` 是来自两帧 `RGB-D` 扫描的 `3D-3D correspondences`，对应于场景的两个局部视角，其中绿色连线表示 inlier correspondences，红色连线表示 outlier correspondences；`(b)` 是带 loop-closure outliers 的 pose graph，其中绿色虚线表示 inlier loop closures，而红色点线表示 outlier loop closure。
+
+顺便一提，来自 `3D-3D correspondences` 的 motion estimation 其实也存在一个很快的 `3-point minimal solver`，例如 `Horn` 方法 [477]。
+
 更一般地，对任意两条 measurements `z_i` 与 `z_j`，一致性约束可写成
 
 `F(z_i, z_j) ≤ γ`
@@ -93,12 +105,16 @@
 
 这就是 `Pairwise Consistency Maximization (PCM)`。
 
+在实践里，阈值 `γ` 往往还需要考虑 loop size：直观地说，更长的回路会累积更多噪声，因此通常应选取更宽松的阈值 [727, 298]。
+
 与 `RANSAC` 相比，`PCM` 的好处在于，它不再需要处理未知状态 `x`，也不需要 `minimal solver`；所有成对一致性关系都可以预先计算出来。更重要的是，它有一个非常自然的图论解释。我们构建一个 `consistency graph`:
 
 - 每个 putative measurement 对应一个节点。
 - 若两条 measurements 满足 `F(z_i, z_j) ≤ γ`，就在节点 `i` 与 `j` 之间连一条边。
 
 这样一来，`PCM` 就等价于寻找图中最大的 `clique`，也就是一个节点子集，其中任意两点之间都有边相连。换句话说，`PCM` 的解恰好就是 consistency graph 的 `maximum clique`。这使得离群点剔除问题可以借助成熟的图论工具来处理。
+
+图 `3.4` 展示了图 `3.3` 中两个例子对应的 consistency graphs：`(a)` 是 `3D-3D correspondences` 例子的 consistency graph，`(b)` 是 pose-graph loop closures 例子的 consistency graph。
 
 基于 maximum clique 的 `PCM` 流程通常包括:
 
@@ -108,6 +124,8 @@
 4. 返回得到的 clique 中的 measurements 作为 inliers。
 
 书中特别提醒，一致性函数的设计高度依赖问题本身，而且会显著影响最终效果。若 `F` 设计得过弱，例如无论输入都返回一致，那么 `PCM` 就无法剔除任何 outliers；若 `F` 设计得过严，又可能误删本该保留的 inliers。此外，尽管 `PCM` 比带状态变量的 `consensus maximization` 更容易处理，`maximum clique` 本身仍然是 `NP-hard` 的，逼近也很困难。实践中既有精确算法，也有利用图稀疏结构、并行化或启发式规则的近似算法。因此，`PCM` 并不是“免费午餐”，但在高 outlier 比例和大 minimal-set 问题下，它往往比 `RANSAC` 更合适。
+
+作者也提醒：无论是几何约束 `(3.3)`，还是 pairwise consistency 约束 `(3.7)`，即便在 ground truth `x` 处评价，也都只是 measurement 成为 inlier 的必要条件，而不是充分条件；此外，`consensus maximization` 与 `PCM` 通常也依赖近似算法求解，因此未必能保证得到最优的 inlier 选择。
 
 ## 3.3 提升 SLAM Back-end 对离群点的鲁棒性
 
@@ -127,7 +145,13 @@
 
 原书还特别给出了一组常见 robust losses 的“菜单”，Figure `3.5` 中包括 `Huber`、`Geman-McClure`、`Tukey's biweight`、`truncated quadratic loss`，以及更激进的 `maximum consensus loss`。后者虽然通常不被列为经典 robust loss，但书中把它一并列出，是为了和前面讨论的 consensus maximization `(3.4)` 建立联系。不同 robust loss 的选择高度依赖具体问题。例如，当已知 inlier 最大误差阈值时，像 `truncated quadratic loss` 这种带 hard cut-off 的损失就很自然；而在 `BA` 问题中，`Huber` 由于保持凸性、优化行为更稳定，因此也很常用，尽管它对 outliers 仍保留非零 influence。相反，`truncated quadratic` 和 `maximum consensus` 对 outliers 更不敏感，但通常需要更 ad-hoc 的求解器。
 
+这里的 `maximum consensus loss` 其实可以理解为在“计数”估计问题中的 outliers：当 residual 很大时，该损失取常数值（通常为 `1`）；当 residual 很小时，它则为 `0`。因此，最小化这类损失，就等价于寻找能产生最少 outliers 的估计，这与求解 `(3.4)` 的 `consensus maximization` 是同一件事。
+
+图 `3.5` 汇总了二次损失与若干常见 robust losses 的形状。这里 robust loss 曲线的具体形状由一个参数控制，该参数负责划分 inliers 与 outliers 之间的分界。
+
 Figure `3.6(g)-(l)` 则展示了把 gradient descent 应用于 `Huber loss` 与 `truncated quadratic loss` 时，在 `M3500`、`SubT` 和 `Victoria Park` 数据集上的结果。与非鲁棒 least squares（Figure `3.1(d)-(f)`）相比，robust losses 在 `M3500` 和 `SubT` 上很快就恢复了对 outliers 的鲁棒性；但对高度非凸的 `truncated quadratic cost`，简单的 gradient descent 在 `Victoria Park` 上仍可能失败。书中也指出，虽然 gradient descent 已经能在很多实例上提升性能，但它往往需要数千次迭代才收敛，存在明显的 slow convergence tail。因此，后文会转向质量和速度都更好的求解器。
+
+图 `3.6` 展示了使用 robust losses 加上 gradient descent 求解带 outliers 的 `SLAM` 问题的结果。图中三列分别对应 `M3500`、`SubT` 与 `Victoria Park`，并按行给出 ground truth、使用 `Huber loss` 的估计结果，以及使用 `truncated quadratic loss` 的估计结果。测量边按颜色编码：灰色表示被优化正确分类为 inlier 或 outlier 的边；红色表示本是 outlier 却被错误保留为 inlier（false positive）；蓝色表示本是 inlier 却被错误判为 outlier（false negative）。
 
 在进入更高级求解器前，作者还补充了一点: 使用 robust losses 并不意味着放弃 probabilistic framework。事实上，若对测量噪声采用 heavy-tailed noise distributions 做 `MAP estimation`，就能推导出若干经典 robust losses。例如，`truncated quadratic loss` 可以由一种在 Gaussian inlier density 与 uniform outlier density 之间的 `max-mixture distribution` 推出。
 
@@ -153,6 +177,8 @@ Figure `3.6(g)-(l)` 则展示了把 gradient descent 应用于 `Huber loss` 与 
 也就是先按当前权重做一次 `Gauss-Newton` 或 `Levenberg-Marquardt` 的 weighted least-squares 更新，再根据新的 residual 重新计算权重。这样既能继续使用成熟 least-squares solver，又能逐步逼近 robust objective 的最优解。
 
 书中的 Figure `3.7` 展示了 `IRLS` 在 `M3500`、`SubT` 和 `Victoria Park` 数据集上的性能。与 gradient descent 相比，`IRLS` 往往只需几十次迭代即可收敛，速度通常显著更快。例如，在书中的 `M3500` 实验里，用 gradient descent 优化 `Huber loss` 大约需要 `5` 秒，而 `IRLS` 不到 `1.5` 秒。不过，这种更快的收敛有时会以精度略降为代价；同时，式 `(3.12)` 的收敛性质仍然与初始化质量密切相关。
+
+图 `3.7` 展示了使用 robust losses 与 `Iteratively Reweighted Least-Squares (IRLS)` 求解带 outliers 的 `SLAM` 问题的结果：`(a)-(c)` 为 `M3500`、`SubT` 与 `Victoria Park` 的 ground truth；`(d)-(f)` 为使用 `Huber loss` 的结果；`(g)-(i)` 为使用 `Geman-McClure loss` 的结果；`(j)-(l)` 为使用 `truncated quadratic loss` 的结果。和图 `3.6` 一样，灰色、红色、蓝色边分别表示正确分类、false positive 与 false negative。
 
 ### 3.3.2 Black-Rangarajan 对偶
 
@@ -224,19 +250,61 @@ Figure `3.6(g)-(l)` 则展示了把 gradient descent 应用于 `Huber loss` 与 
 1. 用当前权重求解状态变量
 2. 用当前状态更新各 measurement 的权重
 
+更具体地说，固定 `x` 时，每个 `w_i` 都独立求解如下标量子问题：
+
+`min_(w_i ∈ [0,1])  Φ_ρ(w_i) + w_i r_i^2(x)`                                    `(3.21)`
+
+这个问题通常很容易求解，而且往往存在闭式解。对 `Geman-McClure` loss，它的解就是式 `(3.20)`；而对 `truncated quadratic loss`，最优权重满足分段规则：
+
+```text
+w_i* = 1,      if r_i^2(x) < β_i^2
+w_i* = 0,      if r_i^2(x) > β_i^2
+w_i* ∈ [0,1],  otherwise
+```
+
+因此，在 `Black-Rangarajan` 对偶视角下，第 `t` 轮 `IRLS` 其实就是如下两步交替：
+
+`x^(t) ∈ argmin_x Σ_i w_i^(t) r_i^2(x)`                                          `(3.22)`
+
+`w_i^(t+1) ∈ argmin_(w_i ∈ [0,1]) Φ_ρ(w_i) + w_i r_i^2(x^(t)),   i = 1, ..., N`  `(3.23)`
+
+作者还指出，经由 `B-R duality` 得到的权重更新规则，实际上正好与前面式 `(3.12)` 的常用 `IRLS` 权重更新一致。
+
 这种理解也解释了为何在某些 `SLAM` 问题中，用 `Geman-McClure` loss 的 `IRLS` 会与已有的动态协方差缩放（dynamic covariance scaling）方法高度一致。
 
 ### 3.3.4 渐进非凸化
 
 尽管 `IRLS` 比朴素 gradient descent 更高效，但 robust losses 的非凸性依然让它对初始化敏感。哪怕 outlier 比例不高，`IRLS` 也可能掉入坏的局部极小值。`Graduated Non-Convexity (GNC)` 正是用来缓解这个问题的。
 
-`GNC` 的思想是，不要一开始就直接优化原始的强非凸 robust loss，而是先构造一个“更平滑、更接近凸”的版本 `ρμ`，由一个控制参数 `μ` 决定其非凸程度。优化开始时用平滑版本，让问题更容易收敛；随着迭代推进，再逐步调整 `μ`，让 `ρμ` 慢慢逼近原始的 robust loss。
+本节介绍 `Graduated Non-Convexity (GNC)` 算法。它的目标，是让 `IRLS` 对初始化质量不那么敏感。给定一个 robust loss `ρ`，`GNC` 的基本思想是构造它的平滑版本 `ρ_μ`，其中标量参数 `μ` 控制非凸程度：在参数范围的一端，`ρ_μ` 是凸的；而在另一端，它又恢复成原始的 `ρ`。
 
-对于 `truncated quadratic` 和 `Geman-McClure`，书中都给出了相应的 `GNC` 版本。重要的是，这些平滑后的损失同样可以套用 `Black-Rangarajan duality`，因此 `GNC` 实际上仍能以“状态更新 + 权重更新”的 `IRLS` 风格执行，只是额外多了一步去更新控制参数 `μ`。
+图 `3.8` 展示了 `GNC` 中控制参数 `μ` 的作用：`(a)` 是 `truncated quadratic loss` 的 `GNC` 形式，`(b)` 是 `Geman-McClure loss` 的 `GNC` 形式。[1221]（©2020 IEEE）
+
+对于 `truncated quadratic` 与 `Geman-McClure`，作者都给出了对应的 `GNC` 版本。对前者，
+
+`ρ_μ` 在 `μ → 0` 时是凸的，而在 `μ → ∞` 时恢复为原始的 `truncated quadratic loss`；对后者，
+
+`ρ_μ` 在 `μ → ∞` 时是凸的，而当 `μ = 1` 时恢复为原始的 `Geman-McClure loss`。图 `3.8(a)` 与 `(b)` 分别画出了这两种 `GNC` 损失，展示了随着控制参数 `μ` 增大或减小，函数如何逐步引入更多非凸性。
+
+这些平滑后的损失仍可套用 `Black-Rangarajan duality`。因此，`GNC` 在每一轮都会执行三步：
+
+1. 变量更新：用当前权重解 weighted least squares
+   `x^(t) ∈ argmin_x Σ_i w_i^(t) r_i^2(x)`                                        `(3.26)`
+2. 权重更新：用当前 `x^(t)` 更新权重
+   `w_i^(t+1) ∈ argmin_(w_i ∈ [0,1]) Φ_(ρ_μ)(w_i) + w_i r_i^2(x^(t))`             `(3.27)`
+3. 控制参数更新：调整 `μ`，让 `ρ_μ` 更接近原始 `ρ`
+
+作者特别指出，`μ` 的调度方向取决于平滑损失的定义：对 `GNC truncated quadratic loss`，需要在每轮把 `μ` 乘以一个常数因子 `γ > 1`；而对 `GNC Geman-McClure loss`，则需要在每轮把 `μ` 除以 `γ > 1`。
 
 实验显示，`GNC` 在 `pose-graph optimization` 这类问题上通常显著优于直接 `IRLS` 或 gradient descent，更不容易卡在坏局部极小值，对高比例 loop closure outliers 也更稳健。不过，`GNC` 并没有一般性的全局收敛保证，其表现依然与具体问题结构密切相关。
 
+图 `3.9` 展示了使用 robust losses 与 `Graduated Non-Convexity (GNC)` 求解带 outliers 的 `SLAM` 问题的结果：`(a)-(c)` 是 `M3500`、`SubT` 与 `Victoria Park` 的 ground truth；`(d)-(f)` 是使用 `Geman-McClure loss` 的轨迹估计；`(g)-(i)` 是使用 `truncated quadratic loss` 的轨迹估计。测量边同样按颜色显示：灰色为正确分类，红色为把 outlier 误判为 inlier 的 false positive，蓝色为把 inlier 误判为 outlier 的 false negative。
+
 本节最后还强调了一个现实点: 当前端和后端都可能受污染时，例如 odometry 自身也含 outliers，问题会变得极其困难。此时，单用 `GNC`、单用 `PCM`，甚至两者组合，都可能在某些数据集上失败。这说明 outlier-robust `SLAM` 依然是一个没有被彻底解决的问题。
+
+作者在这里还特别解释了为什么 odometric measurements 往往更容易做数据关联：它们通常是由相邻帧之间计算出来的，而当传感器频率远高于机器人运动速度时，相邻帧会从非常相似的 viewpoint 观察同一场景，因此 feature matching 中的 illumination changes、occlusions、viewpoint invariance 不足以及 perceptual aliasing 等问题都会显著减弱。
+
+图 `3.10` 展示了当 loop closures、landmark measurements，甚至 odometry 本身都可能含有 outliers 时的结果比较：`(a)-(c)` 是使用带 `truncated quadratic loss` 的 `GNC` 得到的轨迹估计；`(d)-(f)` 是先用 `PCM` 做前端 outlier rejection、再做 least-squares optimization 的结果；`(g)-(i)` 是先用 `PCM` 做前端剔除、再结合 `truncated quadratic loss` 的 `GNC` 得到的轨迹估计。
 
 ## 3.4 延伸阅读与最新趋势
 
@@ -253,6 +321,8 @@ Figure `3.6(g)-(l)` 则展示了把 gradient descent 应用于 `Huber loss` 与 
 `GNC` 本身最早是为早期视觉中的离群点剔除提出的，近些年则被成功应用于点云配准、`SLAM` 以及其他多个鲁棒估计任务。还有研究提出了与 `GNC + IRLS` 十分类似、但从平滑 majorization 角度出发的算法，并进一步给出了 `GNC` 的全局与局部收敛保证。
 
 最后，作者介绍了一类近年来非常重要的新方向: `certifiable algorithms`。此前介绍的算法大致可以分为两类: 一类是 `RANSAC` 或局部 `M-estimation` 这类高效启发式方法，速度快但性能保证弱；另一类是 `branch-and-bound` 这类全局方法，最优性有保证，但几乎无法扩展。`Certifiable algorithms` 试图在 tractability 与 optimality 之间取得平衡。它们把非凸的鲁棒估计问题放松成凸的 semidefinite program (`SDP`)，因而可以在多项式时间内求解，并给出可直接检查的 a posteriori 全局最优性证书。书中提到，这类方法已被用于 rotation estimation、`3D-3D registration` 和 `pose-graph optimization` 等问题；也有比较一般的方法总结了如何为含 outlier 的问题推导这类可认证求解器。不过除了少数特例，这些方法虽然理论上是多项式时间，实际计算代价通常仍远高于启发式方法。好消息是，在某些场景中，相关 insight 还能被用来“验证”一个快速启发式求得的解是否已经达到全局最优，从而兼顾效率与最优性。
+
+关于 `certifiable algorithms` 在 `SLAM` 中的具体形式，作者说明会在第 `6` 章专门回顾。
 
 总体来看，本章后的研究主线非常清楚: 一方面，前端继续围绕几何约束、图结构和一致性关系，尽可能早地滤除 gross outliers；另一方面，后端则通过 robust loss、`IRLS`、`GNC` 乃至可认证优化，去抑制剩余 outliers 的影响。真正稳健的现代 `SLAM` 系统，通常需要把这些路线组合起来使用。
 

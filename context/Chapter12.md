@@ -30,6 +30,8 @@
 
 此外，每当某只脚与地面建立接触时，还会定义一个或多个临时惯性系 `Fk`。对 humanoid 来说，`Fk` 在 touchdown 时与 foot frame 完全重合；对 point-foot quadruped 而言，接触系通常只与落脚点位置一致，而不一定有足够的姿态信息。很多公式之所以成立，前提都在于这些参考系之间的关系被严格定义清楚。
 
+`Figure 12.1` 给出了腿式机器人的参考系约定：世界系 `Fw` 固定在地球上，base frame `Fb` 附着在主机身上。为不失一般性，图中未单独画出 `IMU` frame，因为它可视为与 `Fb` 重合；当某只脚接触地面时，会定义一个 contact frame `Fk`，它固定于地面、垂直于地面，并与足端 frame `Ff2` 重合。
+
 ### 12.1.3 状态定义
 
 严格来说，腿式机器人的状态应包括机体的位姿、速度以及关节状态。但本章默认关节状态由专门传感器直接测量，因此估计问题主要关注机器人 base 的位姿和速度。也正因为如此，作者几乎可以把 state estimation 与 odometry 交替使用，后者就相当于“不含 loop closure 的 `SLAM`”。
@@ -39,6 +41,8 @@
 ### 12.1.4 腿式机器人运动学
 
 腿式机器人的运动学描述，可以看作一个 main link，也就是 body / trunk / torso，再加上一条或多条连接其上的 kinematic chains，也就是各条腿。本章主要考虑工程上最常见的两类结构: 每条腿有 `6` 个主动自由度、配平足的 bipeds，以及每条腿有 `3` 个主动自由度、配 point feet 的 quadrupeds（见图 `12.2`）。作者还假设机器人本体是刚体，例如不存在 articulated spine，并忽略其他上肢结构，例如 arms。
+
+`Figure 12.2` 展示了典型腿式机器人的运动链结构：quadrupeds 与 humanoids。
 
 对 `leg odometry` 来说，我们最关心的是足端相对于机器人 body 的相对位姿或相对位置。设 `q ∈ R^N = [q_1, ..., q_N]^T` 表示具有 `N` 个主动自由度的 articulated robot 的 joint positions，即各个 revolute joints 的角位置。图 `12.1` 以及本章后续公式里，作者以 quadruped 和 biped 都取 `N = 12` 作为示例，但也明确指出，其他平台的 `N` 可以不同。Joint positions `q` 通常通过安装在各关节上的 rotary encoders 直接测得；也可以通过机器人运动学模型，结合安装在电机与关节传动之间的编码器读数间接恢复，例如通过测量液压缸行程再反算相应转角。
 
@@ -88,13 +92,15 @@ T_f^b = fk(q) = [ R_f(q)  p_f(q) ]
 
 ### 12.1.6 关节感知
 
-`Leg odometry` 所依赖的主要本体感觉来自关节感知，也包括直接或间接的接触感知。作者依次介绍了最常见的几类硬件。
+与固定基座机械臂类似，腿式机器人的关节与末端执行器上也装有多种传感器，它们主要服务于 planning 与 control [1011]。这里作者只简要介绍那些同样常用于 leg odometry 的关键传感器，也就是 encoders、force / torque sensors 和 contact sensors。
 
 #### 12.1.6.1 旋转编码器
 
 `Rotary encoder` 是把旋转轴的角位置转换成模拟或数字信号的机电装置。在腿式机器人中，它们使我们能够直接测量关节角度，从而确定机器人运动学；类似器件也会出现在其他部件上，例如机械式 `LiDAR` 就使用编码器来测量 beam array 的方位角。
 
 编码器可以按多个维度分类，包括工作原理上的 optical 或 magnetic、读数方式上的 absolute 或 incremental，以及输出形式上的 analog 或 digital。书中指出，腿式机器人上最常见的是 absolute 与 relative optical digital encoders；其他类型可参考专门文献 [718]。
+
+`Figure 12.3` 说明了两类光学编码器的工作原理。`(a)` 对 `8-bit optical absolute encoder` 而言，红外光束打到旋转圆盘上，圆盘以特定图案遮挡光线来编码转角；一组 photoresistors 将各扇区中光的有无转换为采用 `Gray code` 编码的二进制数，再转成表示绝对转角的十进制数。该示例编码器的分辨率为 `360 / 256 = 1.41` 度。`(b)` 对 optical incremental encoder 而言，两个 photoresistors `A` 与 `B` 之间有 `90` 度相移；当 `A` 上升沿后跟随 `B` 下降沿时，表示顺时针旋转，而 `AB = 11` 到 `AB = 10` 的状态变化会使计数器加一。
 
 `Absolute optical digital encoders` 如图 12.3(a) 所示，能够以绝对方式测量关节角，也就是说，对同一关节构型它总会给出相同读数。其原理是: 红外光源，例如 `LED`，照向静止部分上一圈按径向布置的感光元件，例如 photoresistors；在光源与感光元件之间，有一张随轴旋转的圆盘。该圆盘被划分为若干同心扇区，每个扇区要么透明、要么不透明，并按照某种模式编码特定角度区间对应的二进制数。这个二进制序列通常按 `Gray code` 排列，使相邻自然数只差一个 bit，从而降低读数错误的概率。书中以 `8-bit encoder` 为例说明，其可能输出共有 `256` 个值，因此角分辨率为 `360 / 256 = 1.41` 度。编码器的角分辨率，本质上就由 bits 数，也就是同心扇区数决定。
 
@@ -107,6 +113,8 @@ T_f^b = fk(q) = [ R_f(q)  p_f(q) ]
 `Force / torque sensors` 是把作用在表面某点上的线性力，或施加在轴上的机械扭矩，转换成电信号的装置。它们主要用于执行器扭矩控制，或者感知末端执行器与环境之间的相互作用。在腿式 locomotion 中，每一步都会有地面作用力产生，因此这些力必须被直接或间接测量，才能识别哪些腿正处于 stance phase。
 
 对力和力矩两种量来说，其工作原理通常相同，只是几何结构不同。传感器内部的表面会被设计成在待测方向上受力时产生轻微形变；在这些表面上贴有一种柔性的可变电阻元件，即 `strain gauge`。`Strain gauge` 的电阻会随变形量成比例变化，其中压缩会降低电阻率，而拉伸会提高电阻率。图 12.4 左侧给出了在线性力测量 `load cell` 上使用 `strain gauge` 的例子 [718]；若要测量 torque，则通常会把一组 `strain gauges` 安装在连接电机轴的柔性轮辐结构上。
+
+`Figure 12.4` 展示了 force / torque sensors 的工作原理。`Strain gauge` 会被贴在受载时可压缩或可弯曲的结构元件上：在左侧的 load cell 内，压缩会表现为电阻率下降；在右侧的 torque sensor 内，多个 `strain gauges` 贴在轮辐式柔性元件上，施加扭矩后这些元件会弯曲。通过一侧压缩、另一侧拉伸等组合信号，系统可以反推出扭矩的大小和方向。
 
 若希望同时测量末端执行器上所有方向的力与力矩，则可使用 `6-axis sensors`。这类传感器内部会布置足够数量和方向组合的 `strain gauges`，从而测出各个方向上的 force 与 torque。它们在 manipulation 中很常见，在 humanoid 足底上也会使用，以直接测量足底与地面的相互作用。
 
@@ -127,6 +135,8 @@ T_f^b = fk(q) = [ R_f(q)  p_f(q) ]
 ### 12.2.1 相对位姿估计
 
 作者先用一个沿 `zx` 平面行走的 humanoid 简化例子说明原理。设机器人 base 在相邻两个时刻对应的参考系分别为 `F_b` 与 `F_b'`，足端参考系和关节位置也在这两个时刻相应定义。若接触参考系 `F_k` 在 stance phase 内保持静止，则当足端系与接触系重合时，机器人机体向前移动的位移，就等价于足端相对机体“向后”移动的位移。因此有
+
+`Figure 12.5` 说明了理想接触条件下 leg odometry 的工作方式。左图中若假设 contact frame `Fk` 刚性附着于地面（黄色），就可以据此推断机器人机体的相对运动；右图则等价地从两个相邻时刻出发，表示腿相对于 body frame（黄色）的运动。
 
 ```text
 T_b'^b = T_k^b (T_k^b')^{-1} = (T_f'^k)^{-1} = (T_f'^b)^{-1} T_f^b = fk(q')^{-1} fk(q)
@@ -204,6 +214,8 @@ v_b^w = - ω_b^w × f_p(q) - J_v(q) qdot
 ## 12.3 接触估计
 
 由于 `leg odometry` 的全部前提都是“当前某只脚在可靠支撑地面”，所以 contact estimation 是整个问题的核心。不过，这里的“接触”含义会随应用而变化。比如在协作机器人里，末端执行器只要“碰到”某个物体，也就是受到了不可忽略的外力，就可以视为在接触；而对 `leg odometry` 来说，一只脚只有在接触点能在一段时间内保持静止时，才可视为真正处于接触。对 point-foot 平台而言，这进一步意味着接触点不能发生滑移。
+
+`Figure 12.6` 说明了 quadruped 腿部的接触点模型：当足端施加的力 `f = [f_x, f_y, f_z]^T` 保持在 friction cone 内时，可认为该腿处于 stance。
 
 形式上，对 quadruped 一类 point-foot 机器人，若地面反作用力 `f = [f_x, f_y, f_z]^T` 满足 friction cone 约束，就可以认为足端没有打滑:
 
@@ -292,6 +304,8 @@ Kalman filtering 方法的一个局限是，它要求显式区分过程模型与
 
 原书接着给出两个相关文献中的例子，用来展示 preintegration theory 与前面介绍的 leg odometry 概念如何进入 factor graph estimation framework。重点分别是 bipeds 的 `contact preintegration` [440] 和 quadrupeds 的 `velocity bias preintegration` [1190]。在这两种情形下，第 `12.2` 节中的测量都会被改写成图中因子的 residual 与 covariance。Figure `12.7` 展示了两类典型因子图结构: 上图是带 preintegrated contacts 的图，下图是带 preintegrated velocity 的图；其他约束两个状态的外感知测量，也都可以很自然地再作为额外因子加入图中。
 
+`Figure 12.7` 给出了两类预积分因子图结构：上图是 preintegrated contact 的因子图，下图是 preintegrated velocity 的因子图。其他外感知测量，例如那些约束两个状态的传感器观测，也可以很容易作为额外因子（洋红色）加入其中。
+
 #### 12.4.2.1 接触预积分
 
 接触预积分的想法与 `IMU preintegration` 非常相似。对于 humanoid，如果某条支撑腿在一段时间内持续保持 stance，则其相对接触运动增量可以被压缩成一个连接两个状态的因子。作者引用 Hartley 等人的做法，将其写成一个包含 prior factor、预积分 `IMU factor`、forward kinematics factor 和 contact preintegration factor 的因子图，所提出的图结构见 Figure `12.7a`。其中 prior factor（黑色）用于锚定整张图，预积分 `IMU factor`（橙色）引入来自 `IMU` 的 motion prior；对 humanoid 还额外加入 `forward kinematics factor`（绿色）来约束足端 contact frames 的姿态，而 `contact preintegration factor`（蓝色）则编码两条腿接触状态之间的相对运动。
@@ -370,6 +384,8 @@ ṽ = - Jv(q) qdot - ω × fp(q) + ηv
 
 本章中推导的 `leg odometry` 方程几乎都默认机器人是完美刚体。但在现实里，这一假设经常不成立。一旦腿部在受力时发生弹性弯曲，`forward kinematics` 计算出来的就只是末端执行器的理想位置，而不是其真实位置，因此 `leg odometry` measurements 会带上系统性偏差。类似地，即便接触点本身不动，只要施加在腿上的力使其弯曲，joint angles 也会发生变化。图 `12.8` 直观地展示了这一点: 虽然真实的 base 到接触点变换没有发生系统所期望的变化，但在刚腿假设下，forward kinematics 会把这一现象错误解释成 base 向上运动。
 
+`Figure 12.8` 展示了 quadruped 上的腿部形变示例。左图是真实的 robot base 到 contact point 的变换；由于 forward kinematics 假设腿是刚性的，它会像右图所示那样，把这一现象错误地估计为向上运动。
+
 当这种问题只在很短时间段内出现时，一种曾经使用过的策略 [143] 是分析 force profile，在检测到冲击或异常载荷的那些时间段内直接拒绝对应 measurements。
 
 作者还指出，对 bipeds 来说，由于腿通常更长，leg flexibility 问题往往会更严重。一种理论上可行的路线，是利用 leg load 与 flexibility 的相关性来建模，即腿承受负载越大，弯曲也越明显。若能非常细致地建模机器人结构几何与材料属性，就有可能把 bending properties 显式纳入估计。然而，这种方法通常十分复杂，而且很难泛化到其他平台。
@@ -379,6 +395,8 @@ ṽ = - Jv(q) qdot - ω × fp(q) + ηv
 ### 12.5.2 非刚性接触与打滑
 
 若机器人踩在松软或可塌陷地面上，足端可能在接触状态不变时继续向下陷入地面；若地面柔顺或摩擦不足，还可能出现显著 slip。此时，“接触点静止”这一假设就被破坏了。即便从估计现象上看，这和腿部形变带来的误差很相似，其根本原因却不同: 这次不是机器人腿在变，而是接触点本身在运动。
+
+`Figure 12.9` 展示了 quadruped 上的 ground deformation 示例。机器人最初接触的是平坦地面；在保持接触状态的同时，地面发生形变，足端向下陷入其中（左图）。随着足端下沉、joint angles 变化，这一过程会被系统解释成相对于最初 touchdown 点的向上运动（右图）。
 
 在这种情况下，单靠 `leg odometry` 往往不够。系统需要额外的外感知传感器，例如 camera，使接触点速度重新变得可观。相关工作可将 contact velocity 作为显式状态估计，或把足端位置的时间导数一并纳入模型。
 

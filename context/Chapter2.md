@@ -12,6 +12,8 @@
 
 本节讨论如何在 manifold 上做优化，并把上一章面向向量空间的优化框架推广过来。书中用球面作为示意例子: manifold 本体记作 `M`，而在某个点 `χ ∈ M` 附近，可以用切空间 `TχM` 作为局部坐标系来开展优化。
 
+图 `2.1` 说明，对于球面流形 `M`，局部切平面 `T_χ M` 及其局部基可以提供局部坐标的概念。
+
 ### 2.1.1 旋转与位姿
 
 在 `SLAM` 中，最常见的两个 manifold 是用于表示 rotations 和 poses 的 manifold。旋转通常发生在二维平面或三维空间，因此旋转 manifold 一般写作特殊正交群 `SO(d)`，其中 `d = 2` 或 `3`。
@@ -52,6 +54,10 @@
 `T = Exp(ξ) = exp(ξ∧) ∈ SE(d)`
 
 生成位姿变换。对这些常见 `Lie groups`，从 `Lie algebra` 到 `Lie group` 的映射都有成熟的 closed-form expressions，因此实践中通常不需要真的去使用无穷级数展开。
+
+作者还提醒：除了右侧 perturbation，也完全可以采用左侧 perturbation。更细一点说，扰动究竟发生在 `sensor` 一侧还是 `world` 一侧，还取决于未知变换是写成 `T_w^c` 还是 `T_c^w`，以及扰动是加在左边还是右边。
+
+图 `2.2` 汇总了本章引入的记号：wedge `(·)∧` 与 vee `(·)∨` 运算符、指数 `exp(·)` 与对数 `log(·)` 映射（通常就是矩阵指数与矩阵对数），以及便捷记号 `Exp(·) = exp((·)∧)` 和 `Log(·) = (log(·))∨`。图中以 `SO(n)` 流形为示意，但这些运算符对其他流形同样适用。
 
 ### 2.1.3 Lie 群优化
 
@@ -203,6 +209,8 @@ adjoint 的一个重要用途，是在不做近似的前提下，把 perturbatio
 
 把 spline 表达代入，就得到一个关于活动系数变量和 landmark 变量的 measurement factor。由于在 `ti` 时刻只有少量 basis functions 非零，我们仍然可以把它写成标准的 `zi = hi(xi) + ηi` 形式，于是上一章的非线性 least-squares 框架就可以原样套用。
 
+图 `2.3` 说明了参数化样条如何表示连续时间轨迹。在该例中，给定时刻的位姿 `p(t)` 由具有局部支撑的时间基函数 `Ψ_k(t)` 加权求和得到，并且任意时刻最多只有 `4` 个 basis functions 非零。于是，每个 landmark measurement 都会变成连接 `4` 个 coefficient variables 与 `1` 个 landmark variable 的五元因子（quinary factor），而整体 factor graph 仍然保持很稀疏。
+
 如果 basis functions 本身足够可微，那么轨迹的导数同样易于计算:
 
 `ṗ(t) = Σ_k Ψ̇k(t) ck`
@@ -235,6 +243,8 @@ adjoint 的一个重要用途，是在不做近似的前提下，把 perturbatio
 
 其中 `w(t) = GP(0, Q δ(t - t'))` 是零均值白噪声 `Gaussian Process`，`Q` 是 `power-spectral density matrix`，`δ(·)` 是 Dirac delta function。这里的想法，是把这个 SDE 作为 trajectory 的 motion prior。
 
+这里同样可以把 control inputs 纳入这个 `SDE`，只是原书为简化说明暂时省略了它们。
+
 这个 SDE 可以解析积分，得到状态 `x(t)` 关于初始时刻状态和过程噪声的表达。由于系统是线性且由 Gaussian noise 驱动，因此 `x(t)` 本身也是一个 `Gaussian Process`。在假设初始状态均值为零的简化情形下，可以进一步写出它的 covariance function，也就是 kernel function `K(t, t')`。
 
 虽然这个 covariance 看上去比较复杂，但在所有 measurement times 上求值得到的 kernel matrix 可以整理成一个非常整洁的形式:
@@ -246,6 +256,8 @@ adjoint 的一个重要用途，是在不做近似的前提下，把 perturbatio
 `K^{-1} = Φ^{-T} Q^{-1} Φ^{-1}`
 
 最终会变成 `block-tridiagonal` 结构。根据上一章关于稀疏信息矩阵与 factor graph 的讨论，这立刻意味着: 整条轨迹的 motion prior 虽然作用于所有时刻，但它完全可以由一张非常稀疏的 factor graph 表达出来，通常只包含一个起点 unary factor 和一串相邻状态之间的 binary factors。
+
+图 `2.4` 给出了 `Gaussian Process (GP)` 连续时间因子图的一个例子。这里的 motion prior 基于由随机微分方程（`SDE`）为 Markovian 状态 `x(t)` 导出的 kernel function，因此只会产生一组非常稀疏的因子：初始状态上的一个 unary factor，以及连接相邻状态的一串 binary factors。
 
 这种稀疏性的根本原因，在于我们所选 SDE 的状态 `x(t)` 是 `Markovian`。从实践角度讲，不同的 motion prior 可能要求把状态扩充到更高阶。例如，如果希望使用 `constant-velocity prior`，那么状态就不仅包含 pose `p(t)`，还包含其导数 `v(t) = ṗ(t)`。这类做法常被称作 `simultaneous trajectory estimation and mapping (STEAM)`，可以看作 `SLAM` 的一种连续时间变体。
 
@@ -273,6 +285,8 @@ adjoint 的一个重要用途，是在不做近似的前提下，把 perturbatio
 
 此时只需评估一个 basis function。
 
+图 `2.5` 对比了线性样条的两种基函数形式：上方是普通的 linear spline basis functions，下方是 cumulative basis functions。
+
 把这个思想搬到 `Lie groups` 上时，向量加法不再可用，因此要用 group 运算，也就是矩阵乘法，来替代求和。对 `SE(d)` 的线性样条，插值可以写成
 
 `T(t) = Exp(ψk^c(t) Log(Tk T_{k-1}^{-1})) · T_{k-1}`
@@ -288,6 +302,8 @@ adjoint 的一个重要用途，是在不做近似的前提下，把 perturbatio
 当对涉及 `T(t)` 的表达做线性化时，可以沿用 Section `2.1.3` 中的优化方法。这里作者选择在左侧进行 perturbation，并指出右侧 perturbation 也可以采用类似构造。于是有
 
 `Exp(ξ(t)) T^0(t) = Exp(ξk) T_k^0 T_{k-1}^{0,-1} Exp(-ξ_{k-1})^{αk(t)} Exp(ξ_{k-1}) T_{k-1}^0`
+
+这里作者补充解释：之所以改为在左侧施加 perturbation，是因为若未知位姿表示的是 `T_s^w(t)`，也就是把点从 world frame 变换到 sensor frame，那么 spline 通常是在 sensor frame 中施加的，因此 perturbation 也相应选择发生在这一侧。
 
 作者的目标，是把插值 pose 的 perturbation `ξ(t)` 与两侧 control-point poses 的 perturbations `ξ_{k-1}` 和 `ξk` 联系起来。其一阶近似结果为
 
@@ -394,6 +410,8 @@ e_k = Log( Exp(ξ_k) T_k^0 T_(k-1)^0^(-1) Exp(-ξ_(k-1)) )
 其中 `T_k^0` 与 `T_(k-1)^0` 是当前估计，`ξ_k` 和 `ξ_(k-1)` 是待求的 perturbations，`Ad(·)` 则是 `SE(d)` 上的 adjoint。这个线性化形式就能在每次迭代中直接插入标准的 `MAP` 估计框架。
 
 另外，如果在这个 `random-walk` 例子中，我们希望用式 `(2.74)` 减少 control points 数量，那么也可以沿用前面线性 spline 的同一套做法，因为这两种方法最终都退化成 `SE(d)` control points 之间的线性插值。作者最后总结说，spline 与 `GP` 在 `Lie group` 上做连续时间估计时，最大的区别在于: `GP` 方法会显式引入 motion-prior terms 来正则化问题，而 spline 方法本身并不会自动提供这种正则项。
+
+关于 spline 与 `GP` 两条路线的更细致比较，作者还特别提到 `Johnson` 等人 [525] 的工作；其中也指出，motion-prior terms 同样可以被引入来正则化 spline methods。
 
 ## 2.3 延伸阅读与最新趋势
 

@@ -29,6 +29,8 @@
 
 我们先看一个简单的 `SLAM` 场景，用来说明 `factor graph` 是如何构造的。Figure `1.1` 展示了一个 toy example: 机器人依次经过三个 poses，分别是 `p1`、`p2` 和 `p3`，并对两个 landmarks `ℓ1` 和 `ℓ2` 做 bearing observations。为了把整个解固定在全局空间中，书中还假设对第一个 pose `p1` 存在一个绝对位置/姿态测量。如果没有这一项，由于 bearing measurements 都是相对的，系统将缺乏关于绝对位置的信息。
 
+图 `1.1` 是一个 toy simultaneous localization and mapping（`SLAM`）例子，包含 `3` 个机器人 poses 和 `2` 个 landmarks。图中用箭头示意机器人运动，用虚线表示 bearing measurements。
+
 由于测量存在不确定性，我们不可能恢复世界的真实状态，但我们可以得到一个关于“从这些观测中能推断出什么”的概率描述。在 Bayesian 概率框架中，我们使用概率密度函数（probability density functions, `PDFs`）`p(x)` 来对未知变量 `x` 赋予主观信念程度。`PDF` 是非负函数，并满足总概率公理:
 
 `∫ p(x) dx = 1`
@@ -72,6 +74,8 @@
 - `bundle adjustment (BA)`: 和 `landmark-based SLAM` 类似，但没有 motion model。
 - `pose-graph optimization (PGO)`: 不包含 landmark variables，但包含 poses 之间的 `loop closure` measurements。
 - `simultaneous trajectory estimation and mapping (STEAM)`: 与 `landmark-based SLAM` 相似，但 pose state 会被扩展，包含例如速度等导数项，并采用平滑的连续时间运动先验。
+
+这里所说的 `unary` 与 `binary`，分别指连接 `1` 个变量和连接 `2` 个变量的 factors。
 
 相比 toy example，一个更真实的 `landmark-based SLAM` 的 `factor graph` 可以像 Figure `1.5` 那样。该图来自一个模拟二维机器人场景: 机器人在平面内运动约 `100` 个时间步，并对 landmarks 进行观测。为了便于可视化，每个机器人 pose 和 landmark 都按其 ground-truth 位置画在二维平面上。由此可以明显看到，`odometry factors` 构成了一条显著的链式骨架，而连接到约 `20` 个 landmarks 上的二元似然因子（binary likelihood factors）则分布在侧边。除了 priors 之外，这类 `SLAM` 问题中的 factors 通常都是非线性的。
 
@@ -235,6 +239,8 @@
 
 直接得到。作者指出，QR 得到的上三角因子 `R` 与 Cholesky 版本的 `R` 是一致的，只是可能在对角符号上不同。两者的计算复杂度同属 `O(mn^2)`，但在 `m ≫ n` 时，QR 往往比 Cholesky 慢一个约 `2` 倍的常数因子。
 
+这里作者还专门说明：有些文献，包括 [389]，会把 `Cholesky triangle` 定义为下三角矩阵 `L = R^T`；但本章采用相反约定会更方便。
+
 总结来说，线性化后的 `SLAM` 问题，可以概括为: 把 `information matrix Λ` 或 measurement Jacobian `A` 做平方根形式的因式分解。这也是 `square-root SAM` 这个名字的来源。
 
 ## 1.4 非线性优化
@@ -284,7 +290,7 @@
 
 `(A^T A + λ diag(A^T A)) δ_lm = A^T b`
 
-这种改进使得在平坦方向上可以走更大的步，在陡峭方向上则更保守。与 `GN` 不同，`LM` 会拒绝那些导致残差平方和增大的更新；一旦更新被拒绝，就增大 `λ` 并重新求解，直到找到可接受的步长。
+这种改进使得在平坦方向上可以走更大的步，在陡峭方向上则更保守。作者还指出，这两种对 normal equations 的修改都可以从 Bayesian 角度理解为：给问题中的全部未知量加入一个零均值先验。与 `GN` 不同，`LM` 会拒绝那些导致残差平方和增大的更新；一旦更新被拒绝，就增大 `λ` 并重新求解，直到找到可接受的步长。
 
 ### 1.4.4 Dogleg 最小化
 
@@ -312,6 +318,12 @@
 
 在线性 least squares 问题中，每个 factor 对应 `A` 中的一块 block-row，每个变量则对应一块 block-column。因此，`A` 的 block sparsity pattern 与 `factor graph` 完全一致。换言之，图结构本身就编码了 Jacobian 的稀疏模式。
 
+图 `1.7` 展示了 toy `SLAM` 例子中稀疏 Jacobian `A` 的块结构，其中
+
+`δ = [δℓ_1^T, δℓ_2^T, δp_1^T, δp_2^T, δp_3^T]^T`
+
+所有留白位置都表示零块。
+
 作者接下来正是利用这一点，把 `factor graph` 与后续的稀疏矩阵计算直接联系起来。
 
 ### 1.5.2 稀疏信息矩阵及其图结构
@@ -323,6 +335,10 @@
 严格来说，这并不是真正的 Hessian，而是 `Gauss-Newton` 近似得到的版本。不过，由于 `A` 是 block-sparse，`Λ` 通常也会保持稀疏。`Λ` 还天然定义了一张无向图 `G`: 当且仅当两个变量曾在同一个 factor 中同时出现时，这两个变量之间就在 `G` 中有边。对偶数因子之外的更高元因子来说，这种关系会在相关变量间诱导出一个 clique。
 
 因此，`Λ = A^T A` 的 block sparsity pattern，实际上就对应于这张无向图的邻接结构。这张图在后面讨论稀疏性和 `fill-in` 时会反复出现。
+
+作者也补充指出，这张与 `Λ` 对应的图，正好就是该估计问题对应的 `Markov Random Field (MRF)` 图，只是本章不展开这条联系。
+
+图 `1.8` 展示了 toy `SLAM` 问题的信息矩阵 `Λ` 及其对应的无向图 `G`。
 
 ### 1.5.3 稀疏分解
 
@@ -336,6 +352,8 @@
 - 如果使用 `COLAMD` 这类启发式重新排序，则 `R` 中非零项可降到 `4168` 个。
 
 两者通过回代得到的解完全一致，但计算成本会大不相同。作者也提到，诸如 pre-conditioned conjugate gradient 之类的方法也可以迭代地求解 normal equations；不过对大多数 `SLAM` 问题而言，稀疏 factorization 仍然是首选，而且它还拥有非常自然的图模型解释。
+
+图 `1.9` 进一步给出了更大仿真例子的稀疏模式比较。左侧是与图 `1.5` 中问题对应的 measurement Jacobian `A`，其未知量数量为 `3×95 + 2×24 = 333`，行数 `1126` 则等于标量 measurements 的数量；图中同时给出了非零元素个数 `nnz`。右侧依次展示 `(top)` 信息矩阵 `Λ ≜ A^T A`，`(middle)` 其上三角 Cholesky 因子 `R`，以及 `(bottom)` 通过更优变量排序 `COLAMD` 得到的替代因子 `amdR`。
 
 ## 1.6 消元
 
@@ -370,6 +388,8 @@
 
 这清楚地展示了 `Bayes net` 中的条件依赖结构。
 
+图 `1.10` 展示了 toy `SLAM` 例子的变量消元过程：按照 `ℓ1, ℓ2, p1, p2, p3` 的顺序，把图 `1.3` 中的 factor graph 转换为一个 `Bayes net`（右下）。
+
 ### 1.6.2 线性高斯消元
 
 当测量函数是线性的、噪声是加性 Gaussian 时，`elimination algorithm` 与稀疏矩阵 factorization 就完全等价。无论是稀疏 `Cholesky` 还是稀疏 `QR-factorization`，都可以看作这个一般算法的特例。
@@ -381,9 +401,13 @@
 
 在 toy example 中，消去 `ℓ1` 时，它相邻的 factors 是 `ϕ4`、`ϕ7` 和 `ϕ8`，其 separator 是 `[p1, p2]`。在稀疏 Jacobian 视角下，这等价于把第一列中所有非零块所在的 block-rows 抽取出来，做一次局部稀疏因式分解。
 
+图 `1.11` 展示了把变量 `ℓ1` 消去、作为一次部分稀疏因式分解步骤的情形。
+
 完成全部消元后，所得的条件密度 `p(x_j | s_j)` 都是 `linear-Gaussian` 的。求解 `MAP estimate` 时，只需按消元的逆顺序做 `back-substitution` 即可: 最后消去的变量不依赖其他变量，能直接从 `Bayes net` 中读出；然后依次代回，就能恢复所有变量的 `MAP` 值。
 
 作者还指出，对多维变量做这样的逐块消元，本质上就是 `multi-frontal QR factorization`。在推断语义上，自然的变量分组和稀疏线性代数里为了计算效率而做的分组，很多时候是高度一致的。
+
+图 `1.12` 给出了 toy 例子中剩余的消元步骤，完成了完整的 `QR factorization`。右下角最后一步展示了最终得到的 `Bayes net` 与稀疏 Cholesky 因子 `R` 之间的等价性。
 
 ### 1.6.3 作为 Bayes Net 的稀疏 Cholesky 因子
 
@@ -422,6 +446,8 @@
 `p(x) = ∏_k p(f_k | s_k)`
 
 在 toy `SLAM` 例子中，根 clique 包含 `p2, p3`，它与其他两个 cliques 分别通过 `p2` 和 `p3` 相连。`Bayes tree` 也清晰揭示了平方根信息矩阵 `R` 的行块如何对应到不同 cliques 上。
+
+图 `1.13` 展示了 `Bayes tree`（`b`）及其对应的平方根信息矩阵 `R`（`c`），它们描述了基于图 `1.3` 中 canonical example 的 chordal `Bayes net`（`a`）里的 clique 结构。`Bayes tree` 与 clique tree 相似，但更能刻画稀疏线性代数与图模型推断之间的形式等价关系；图中的颜色则标示了 cliques 与 `R` 因子行块之间的对应关系。
 
 ### 1.7.2 更新 Bayes Tree
 

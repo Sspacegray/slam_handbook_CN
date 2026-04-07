@@ -15,6 +15,8 @@
 - 适合户外环境的 `LiDAR`
 - 适合室内环境、也逐渐支持室外应用的 `RGB-D camera`
 
+图 `5.1` 展示了 `LiDAR` 传感器中的单射线与多射线类型，并用真实世界样本数据可视化了 `RGB`、depth 与 `LiDAR range image`。
+
 ### 5.1.1 传感器测量模型
 
 作者先对 range sensor 的感知机理和测量模型做了简要回顾。对 `LiDAR` 而言，range measurement 由激光束发射、环境反射和回波检测产生 [934]。若发射时间为 `t_emit`、检测时间为 `t_detect`，则根据光速 `c`，测得距离 `r` 满足
@@ -27,11 +29,15 @@
 
 为了生成深度图，早期 `RGB-D` 相机通常采用 structured infrared light：向环境投射已知的红外图案，再根据该图案在场景中的畸变恢复每个像素的距离。由于 sunlight 往往会干扰这种 sensing mechanism，因此依赖投影光的这类 `RGB-D` 相机主要用于室内环境。较新的传感器则引入了改进的红外纹理投射器或 `time-of-flight (TOF)` 方案，它们对外界干扰更不敏感，因此更适合室外应用。
 
+这里用来示意本章的 `LiDAR` 主要是简单 `2D LiDAR` 与机械旋转式 `3D LiDAR`；其他 solid-state `LiDAR` 与 flash `LiDAR` 会在第 `8` 章介绍。
+
 ### 5.1.2 转换为点云
 
 有了 range image 或 depth map，再结合传感器内参，就可以把测量转换成 point cloud `P = {p1, ..., pN}`。点是 dense mapping 中最基本的构件。
 
 对 `LiDAR`，传感器会为每条 beam 提供一组内参标定角 `(ϕ_ij, θ_ij)`，其中 `1 ≤ i < B`、`1 ≤ j < M`。这里 `ϕ_ij ∈ [0, 2π]` 是 azimuthal angle，`θ_ij ∈ [-π, π]` 是 polar / inclination angle。利用这些已知角度，可将 range measurement `r_ij` 转换为三维点 `p = (x, y, z)`:
+
+图 `5.2` 为球坐标系（spherical coordinate）示意。
 
 `x = r_ij cos(θ_ij) cos(ϕ_ij)`  。`(5.2)`
 
@@ -45,6 +51,8 @@
 
 作者还特别强调了 `organized` 与 `unorganized point clouds` 的差异。由 depth map 得到的点云通常是 organized 的，邻域关系可由像素索引直接推得；而 `LiDAR` 点云在 motion distortion、固态雷达非重复扫描模式等情形下，则常常变得 unorganized。这时，若要得到几何上合理的点云，往往需要结合 per-beam timestamp、`IMU` 或 odometry 对点云做 `motion compensation`。
 
+图 `5.3` 给出了常见稠密表示的示例：`(a)` 点，`(b)` 占据，`(c)` 隐式曲面，`(d)` 距离场，`(e)` 表面。
+
 ## 5.2 稠密建图基础
 
 地图本质上是一种对环境的符号化表示。对于同一片空间，可能存在很多等价但风格不同的表示方式。不同表示的优劣高度依赖应用目标: 稀疏特征地图适合 localization，稠密高分辨率地图适合重建，而 path planning 往往更关心 occupancy 或距离信息。
@@ -55,11 +63,17 @@
 2. 应该采用什么空间抽象
 3. 这些表示该如何存储
 
+图 `5.4` 说明了表示既可以是 explicit，也可以是 implicit。该图为便于说明做了简化；在真实场景中，各种抽象往往并不能被清晰分开，而是可以组合使用。
+
 ### 5.2.1 Occupancy Maps（占据栅格地图）
 
 自 Elfes 和 Moravec 在三十多年前提出以来 [304, 773]，`occupancy grids` 一直是最广泛使用的地图表示之一。它们之所以长期流行，一个重要原因是简单且计算高效，尤其适合室内，甚至很多室外环境的建图任务。最基本的情形下，我们要估计的是每个 cell 被占据的概率；也就是说，把一个 cell 是否包含障碍物建模成一个概率量，其中 `1` 表示 occupied，`0` 表示 free。从这个角度看，occupancy mapping 本质上是对每个 cell 做 binary classification。
 
+需要说明的是，occupancy mapping 并不一定只能通过 grid-based methods 实现，例如 `GPOM` [815] 也可用于 occupancy mapping；本章为简化讨论，聚焦于 grid-based mapping。
+
 给定传感器 measurements `z_(1:t)` 和一组传感器 poses `x_(1:t)`，地图中每个 cell `m_k` 的占据概率可写成 `p(m_k | z_(1:t), x_(1:t))`。书中在图 `5.5` 中用简单的 `2D` ray-casting 例子说明了这一点: 当某个方向上测得一条 range return 时，就意味着该方向上某个位置存在障碍物。
+
+图 `5.5` 展示了一个简单的二维 ray-casting 示例。给定某个方向上的 range measurement，无论该 azimuth 是计算得到还是估计得到，回波的返回都表明该方向上存在障碍物。
 
 在假设各个 cells 相互独立、且 measurements 在条件下独立时，occupancy 的更新可以高效写成著名的 `log-odds` 形式 [773]:
 
@@ -76,6 +90,8 @@
 ### 5.2.2 隐式曲面与距离场
 
 另一条路线不是直接估计 occupancy probability，而是估计“自由空间与占据空间的边界”。若存在一个连续函数在物体表面处取零值，其正负号还能区分 inside / outside，那么这个函数就定义了一个 `implicit surface`。
+
+图 `5.6` 用一个实心二维圆盘说明 explicit surface 与 implicit surface 的差异：黑色轮廓表示显式表面，彩色场表示隐式函数；该函数在物体内部为负（蓝色），在外部为正（红色），而零交叉恰好对应表面本身。
 
 这类表示的好处是:
 
@@ -138,6 +154,8 @@
 
 从表示效果看，密集 point cloud 虽能高细节地刻画环境，但代价是内存开销大；surfel map 则会把多个 measurements 聚合为单个 surfel，因而牺牲一部分 fine details，却能在保留主要大尺度 surface structure 的同时大幅降低内存占用。
 
+图 `5.7` 对比了把 `KITTI` 数据集 [373] `Sequence 07` 的一串 `LiDAR` 扫描分别累积成 point cloud map 与 surfel map 的结果。`(a)` 为点云地图，点的亮度表示 `LiDAR` 回波强度；`(b)` 为基于圆盘 surfels 的对应 surfel map。累积全部点云后的完整地图占用 `2.95GB`，而 `SuMa` [66] 生成的对应 surfel map 只需 `160MB`。
+
 与 surfels 紧密相关的还有 `normal distributions transform (NDT)` [82, 1034]。`NDT` 把空间划分为 voxels，并将每个 voxel 内的 points 近似为正态分布 `N(μ, Σ)`。通过协方差矩阵的特征值 `λ_1 < λ_2 < λ_3` 及对应特征向量 `v_1, v_2, v_3`，可以估计该 voxel 内部的表面性质；对于平面区域，若 `λ_1 << λ_2`，则最小特征值对应的特征向量 `v_1` 就近似是 surface normal。因而，对 planar surfaces 来说，`NDT` 可以被视为一种 surfel 表示；同时，它又能更准确地表达那些无法被单个 surfel 近似的点分布。从这个意义上说，`NDT` 是一种 hybrid representation: 它因 voxel grid 而 explicit，又因 voxel 内部用 normal distribution 连续表示空间而带有 implicit 成分。
 
 #### 5.3.2.3 网格
@@ -172,6 +190,8 @@ Functions 是以连续方式进行 mapping 的一种关键抽象。在这里，m
 
 反过来，把 implicit surfaces 转成 mesh 也很常见。最经典的算法是 `Marching Cubes` [695]。它将隐式表面划分成固定大小的 cubes，并分别独立处理；每个 cube 根据其八个角点上的 implicit function values，映射到若干标准配置中的一种，再生成相应的 triangle elements，随后通过线性插值细化顶点位置。由 `BIM (Building Information Modeling)` 或 `CAD (Computer-Aided Design)` 模型得到的 meshes，还可以进一步采样成 points 或 surfels。
 
+图 `5.8` 展示了 `Marching Cubes` 算法的工作方式：把 cubes 投影到 implicit surface 上，查询 cube 八个角点处函数值的符号，再查表确定它对应 `15` 种标准配置中的哪一种。（图片来源：Ryoshoru，“Marching cubes”，`CC BY 4.0`，源链接：`https://commons.wikimedia.org/wiki/File:MarchingCubesEdit.svg`）
+
 有时还必须把 discrete representation 转回 continuous representation。常见做法，是对连续表示的参数求解一个 optimization problem，使其相对于离散数据的拟合误差最小。
 
 ### 5.3.3 数据结构与存储
@@ -181,6 +201,8 @@ Functions 是以连续方式进行 mapping 的一种关键抽象。在这里，m
 #### 5.3.3.1 朴素数据存储
 
 对很多地图表示来说，一个简单且可动态扩展的数组是很自然的起点。对于具有预定义空间划分的数据，只需要两样东西: 要存储的数据类型，以及一个把空间坐标转换成索引坐标的函数。这类方式常见于 occupancy 或 signed distance values 的存储。对于不规则数据，则只需给出元素类型本身，例如 point clouds 或 surfels。书中用图 `5.9` 说明了这两种情形: 一种是借助映射函数把有序数据存入数组，另一种是直接把无序 point cloud 数据放入数组结构。
+
+图 `5.9` 中，`(a)` 展示了如何通过函数 `f(·)` 把逻辑网格坐标唯一映射到底层基于数组的朴素存储中的线性索引；`(b)` 则展示了如何把无序数据直接存入数组结构。
 
 这种 naive approach 的优点是实现简单，并且能提供很快的 random access。其代价则是内存需求可能非常大。此外，虽然 read 与 modify 操作都很快，但一旦需要改变表示的空间范围，代价就会很高，因为往往需要复制整个 data structure 的内容。
 
@@ -204,6 +226,8 @@ Hash table 保留了固定数组 `O(1)` look-up time 的优点，同时又允许
 
 构建 octree 时，可以从包围 point cloud `P` 的 axis-aligned bounding box 出发，递归地把空间切分成 octants。每次划分都会把 `P` 分成 `P_1, ..., P_8` 八个子集，对应 `8` 个 child octants；对非空子集继续递归，直到 octant 尺寸达到预设阈值，或点数小于某个最小值为止。树构建好后，更新和插入都可以通过遍历结构并按需添加内部节点来高效完成。如果新数据落在现有根 octant 之外，还可以通过创建新的 root node，把旧树和新数据分别挂到新根的不同 children 下，以实现动态扩展。
 
+图 `5.10` 给出了 octree 及其在不同层级上的 octants 示例。octree 的每一层都会把空间进一步细分成更细粒度的 octants；需要注意的是，更深层通常只表示被占据的空间。
+
 与 voxel grids 相比，octree 只表示真正含数据的子空间，因此在 occupied space 的存储上更高效。但这种 memory efficiency 的代价，是访问某个具体 leaf octant 时需要 tree traversal，从而可能带来更高的定位开销；此外，树结构本身也必须显式编码，因此还会有额外 memory overhead。
 
 #### 5.3.3.4 混合数据结构
@@ -213,6 +237,20 @@ Hash table 保留了固定数组 `O(1)` look-up time 的优点，同时又允许
 例如，`hashed voxel grids` [807] 把 dense voxel grids 与 hash tables 结合起来: 先把环境划分为固定大小的稠密 blocks（例如 `8×8×8` voxels），再把这些 blocks 存入 hash table。这样一来，借助 hash table 的灵活性，只有包含有意义信息的位置，例如靠近 surface 的区域，才需要真正分配 blocks；与此同时，每个 block 内部仍使用普通 `3D array` 存储 voxels，因此具体操作保持简单、高效，并且很适合 `GPU` 加速。
 
 另一条路线，是把 hash tables 与 trees 结合起来。与 `hashed voxel grids` 类似，`VDB` [791, 790] 也会先把空间切成 hashed blocks，但每个 block 内部再维护一棵 hierarchical tree。这样它既拥有 hierarchical trees 的全部好处，例如 multi-resolution representation 与高效 nearest neighbor lookups，又因为每个 block 的大小固定，使得最大树高与环境总体大小无关。于是，lookups 与 insertions 都可以在常数时间内完成，并且通常比纯树结构更快。
+
+这里的 `VDB` 指 sparse volumetric data，在文献中既被解释为 `Voxel Data Base`，也被解释为 `Volumetric Data Blocks`；本书沿用 [791] 中的术语。
+
+表 `5.1` 总结了前文介绍的地图构建方法。
+
+| 小节 | 空间抽象类型 | 所表示的地图实体 |
+| --- | --- | --- |
+| `5.4.1` | 点（Points） | 表面（Surface） |
+| `5.4.2` | 表面元（Surfels） | 表面（Surface） |
+| `5.4.3` | 网格（Mesh） | 表面（连通）（Surface, connected） |
+| `5.4.4` | 体素（Voxels） | 占据或隐式曲面 |
+| `5.4.5 - 5.4.6` | 连续函数（Continuous function） | 占据或隐式曲面 |
+
+需要注意，这里只是按“主要空间抽象”来分类方法；其中一些方法还会额外借助其他空间抽象来提升性能，例如把 points 分组进 voxels，以获得更高效的存储和更快的查询。
 
 ## 5.4 地图构建的方法与实践
 
@@ -304,16 +342,35 @@ Multi-resolution 还可以被用来降低 measurement updates 的计算成本。
 
 ### 5.4.5 Gaussian Processes（高斯过程）
 
-把 mapping 看成回归问题时，`Gaussian Processes (GPs)` 是非常自然的工具。它们是 stochastic、non-parametric、non-linear regression 方法，能够在给定稀疏、带噪测量的前提下，对任意查询位置估计未知函数值。
+正如 `5.3.2.5` 所述，若希望把 mapping 问题表述为回归问题，从而得到连续表示，那么使用非参数方法来求解非线性回归是很自然的选择。`Gaussian Process (GP)` [908] 就是一种 stochastic、non-parametric、non-linear regression 方法。它能够在给定其他位置上的稀疏、带噪观测后，估计未知函数在任意查询点处的值。我们在第 `2.2` 节已经看到，`GP` 可用于连续时间轨迹表示；同样地，它也非常适合连续空间量的建图，并已在机器人文献中被广泛用于基于 depth sensors 建模连续空间现象 [1121, 815, 377, 573]。
 
-在稠密建图里，`GPs` 的重要优势包括:
+`GP` 模型中的信息由均值函数 `m(x)` 和 kernel functions `K(x, x')` 承载，对连续量的估计可写为
 
-- 能显式建模空间相关性
-- 可提供预测均值与不确定性
-- 可在未观测区域做有 principled 的推断
-- 导数仍然是 `GP`，因此 gradients 与 uncertainty 都能连续获取
+```text
+f(x) ~ GP(m(x), K(x, x'))                                            (5.8)
+```
 
-其中 `Gaussian Process Occupancy Mapping (GPOM)` 就是把 occupancy mapping 变成 `GP` 回归问题的代表。它克服了传统 occupancy grids 中“cells 独立”的强假设，但经典 `GPOM` 的代价也很高，原始形式通常具有立方级训练复杂度，因此后续大量工作都在研究增量式或稀疏近似版本。
+设 `X = {x_j ∈ R^D}` 是一组带 measurements `y` 的位置，其中 `y_j = f(x_j) + ϵ_j`，也就是在位置 `x_j` 上对待估计量的观测。对 `J` 组训练对 `(x_j, y_j)`，假设噪声 `ϵ_j` 相互独立同分布，并服从高斯分布 `ϵ_j ~ N(0, σ_j^2)`。再给定一组测试位置 `X* = {x_n* ∈ R^D | n = 0, ..., N}`，则函数值与观测目标值的联合分布可写为
+
+```text
+[ y  ]   ~ N( 0, [ K(X, X) + σ_j^2 I    K(X, X*)  ] )                (5.9)
+[ f* ]            [ K(X*, X)             K(X*, X*) ] 
+```
+
+其中 `K = [K(x_i, x_j)]_ij`。于是，条件分布 `(f* | X, y, X*)` 仍服从高斯分布 `N(f*, cov(f*))`，其均值与协方差预测方程分别为
+
+```text
+f* = K(X*, X) [K(X, X) + σ_j^2 I]^(-1) y                             (5.10)
+cov(f*) = K(X*, X*) - K(X*, X) [K(X, X) + σ_j^2 I]^(-1) K(X, X*)    (5.11)
+```
+
+式 `(5.10)` 与 `(5.11)` 就是该待估计量的 predictive equations。
+
+`GP` 对建模空间相关数据尤其强大，因此它能够突破 occupancy grid mapping 中“cells 彼此独立”的传统假设。`Gaussian Process Occupancy Mapping (GPOM)` [815] 会收集 sensor observations 及其对应标签（free 或 occupied）作为训练数据，把地图中的 cells 视作 testing locations，并按式 `(5.9)` 建立训练数据与测试位置之间的关系。随后利用式 `(5.10)` 与 `(5.11)` 完成回归，再通过 binary classification functions 把回归输出“压缩（squash）”成 occupancy probabilities，从而得到每个 cell 的占据概率。
+
+不过，在其原始形式下，`GPOM` 是一种 batch mapping technique，计算复杂度为三次级 `O(J^3 + J^2 N)`。为降低这一复杂度，尤其是为了支持 incremental `GP` map building，后续工作提出了多种扩展方法，例如 [573, 574, 1156, 378]。
+
+基于 `GP` 的地图还有一个关键优势：被估计的量在线性算子作用下仍然会输出一个 `GP` [968]。由于导数，尤其 gradients，本质上就是线性算子，因此对该估计量求导的结果同样是 probabilistic 的。这种连续形式的环境不确定性可以被用来突出尚未探索的区域，并进一步优化机器人的 search plan [378, 676]。同时，`GP` 地图的连续性还让规划器能够直接在已收集的 sensor data 上做推断，而不再受限于 grid / voxel cell 的分辨率。
 
 #### 5.4.5.1 Gaussian Process Implicit Surface（高斯过程隐式曲面）
 
@@ -348,6 +405,8 @@ Multi-resolution 还可以被用来降低 measurement updates 的计算成本。
 这样做的结果是，系统可以用一个相对简单的分类器去表达复杂空间结构，同时保持在线更新能力。训练时，常沿 measurement rays 采样 free-space points，并把回波点作为 occupied samples。
 
 它的难点在于 kernel / feature projection 的表达能力与计算代价之间的权衡: kernel 太弱则重建细节不够，太强则代价升高。
+
+图 `5.11` 展示了 `Hilbert Map` 的构造流程：`(a)` 机器人使用 `2D LiDAR` 传感器得到的观测，会被转换为 `(b)` 自由点（绿色）与占据点（红色）组成的数据集，再据此训练出 `(c)` 所示的 `Hilbert Map`。
 
 ### 5.4.7 建图中的深度学习
 
@@ -406,6 +465,14 @@ Multi-resolution 还可以被用来降低 measurement updates 的计算成本。
 
 - explicit representations 更适合沿 surface 做操作，例如渲染、表面分析、coverage planning、纹理处理
 - implicit representations 更适合在 Cartesian space 中做查询，例如 collision checking、occupancy filtering、distance queries
+
+表 `5.2` 概括了 explicit 与 implicit surface representations 互补的优劣势。
+
+| 操作 | 显式表示更高效的空间 | 隐式表示更高效的空间 |
+| --- | --- | --- |
+| 过滤测量（Filter measurements） | 沿表面（texture, ...） | 在 Cartesian space 中（occupancy, ...） |
+| 查询与遍历（Query and iterate） | 在表面坐标中（coverage planning, ...） | 在 Cartesian coordinates 中（collision checking, ...） |
+| 修改表面（Modify surface） | 几何（deformation, ...） | 拓扑（merge, cut, simplify, ...） |
 
 这解释了为何:
 

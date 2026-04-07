@@ -84,6 +84,8 @@ g^b × ω_ie^b = R_w^b (g^w × ω_ie^w)
 
 因此，`IMU preintegration` 的核心价值就在于: 把两个关键帧之间的大量原始 `IMU` 读数压缩成一个相对运动约束，使高频数据不必以原样全部进入图中。更关键的是，普通积分方式在图优化过程中一旦线性化点变化，常常就得从头重积分；而预积分的设计，恰恰就是为了避免这一点。
 
+`Figure 11.1` 直观展示了 `IMU` 与 camera 的采样频率不同。图引自 [335]（©2016 IEEE）。
+
 ### 11.2.1 运动积分
 
 本节首先讨论如何仅从 `IMU` 测量出发推断机器人运动。为此，作者引入如下连续时间运动学模型:
@@ -141,6 +143,8 @@ p_j = p_i
 ```
 
 其中，作者为了书写简洁，引入了记号 `Δt_ij = Σ_{k=i}^{j-1} Δt`，并令 `(·)_k = (·)(t_k)`。式 `(11.13)` 已经给出了从 `t_i` 到 `t_j` 的运动估计，但它仍有一个关键缺点: 一旦关键帧 `i` 处的线性化点改变，例如 `Gauss-Newton` 每轮迭代更新了 `R_i`，那么后续所有 `R_k, k = i, ..., j - 1` 都会随之变化，导致 `(11.13)` 中的乘积和求和都必须重新计算。
+
+原书这里还有两条脚注式补充。第一，之所以使用 `keyframe states` 这一术语，是因为在许多含 `IMU` 与 camera 的应用中，factor graph 里的状态通常只会加在 camera frames 的一个子集上，也就是 keyframes（见第 `7` 章）；但这里并不失一般性，`keyframe states` 完全可以按任意策略实例化，例如每个 camera frame、每次 `LiDAR` scan，或者每隔 `n` 个 `IMU` measurements 加一个状态。第二，为了简化讨论，这里假设 `IMU` 与其他传感器是同步的，且 `IMU` measurements 恰好采样在 `t_i` 和 `t_j`；实际系统中可以通过插值来近似这一情况，关于 temporal synchronization 的进一步讨论见 `11.4.3`。
 
 这正是下一节引入 `IMU preintegration` 的动机。预积分的目标，不只是把高频 `IMU` 数据压缩成两个关键帧之间的一条约束，更重要的是让这条约束在优化中对线性化点变化不那么敏感，从而避免每次迭代都重做整段积分。
 
@@ -279,7 +283,7 @@ b˙a(t) = η^ba                                          (11.32)
 
 ### 11.2.3 高级预积分技术
 
-标准预积分的优点是简单、有效，但其背后隐含着一系列数值与运动假设，例如 Euler 积分、区间内信号近似常值等。在高动态、低采样率或异步传感器融合场景中，这些假设会带来明显误差。因此，后续研究开始从数值积分精度和连续时间建模两方面改进预积分。
+本节讨论标准预积分方法的一些局限，并介绍更新的替代方案。我们先看式 `(11.14)` 中隐含的信号与运动假设，再回顾若干用于缓解这些假设的工作；这些方法在辅助惯性导航中可带来更准确的预积分 measurements，从而提升 localization 与 mapping 的精度。作者也特别说明，这里不逐一展开各方法的完整推导，若需更详细处理应直接参考对应论文。
 
 #### 11.2.3.1 数值积分精度
 
@@ -289,9 +293,13 @@ b˙a(t) = η^ba                                          (11.32)
 
 当 sampling frequency 不够高时，分段常值假设就不能很好地逼近真实输入信号。这样一来，积分误差会快速累积，尤其在对加速度做双重积分得到位置时更明显，图 11.2 右侧就展示了这种误差增长。
 
+`Figure 11.2` 展示了在已知初始条件下使用 `Euler integration` 的结果：上排对应较低采样频率，下排对应较高采样频率。
+
 一种直接补救办法，是提高采样频率，使矩形近似更精细。但在真实惯性导航系统中，采样频率终究受 `IMU` 硬件能力限制，不可能无限制提升。
 
 为此，文献 [630] 提出使用 `Gaussian Process (GP) regression` 来对输入信号做“虚拟上采样”，使 gyroscope 与 accelerometer 数据都可以在任意选定时间戳上被估计出来。这样一来，数值积分会比标准预积分更准确。不过，作者也指出，这类做法本质上仍然建立在 piecewise-constant 的数值积分思路之上，并没有真正发挥 `GP` 连续模型的全部潜力。也正因此，后续工作才进一步发展出更复杂的连续时间积分方法。
+
+这里原书还脚注说明：`GP regression` 是一种 non-parametric、probabilistic interpolation approach，想更深入理解可参考 [908]。
 
 #### 11.2.3.2 连续加速度预积分
 
@@ -304,6 +312,8 @@ b˙a(t) = η^ba                                          (11.32)
 若想进一步放松 constant-acceleration 假设，就可以直接用解析可积的连续函数逼近输入信号。书中提到两类典型做法。一类是假设旋转校正后的加速度为 `piecewise-linear`，也就是近似 `constant jerk`。这时，从加速度到速度的第一次积分就退化为经典梯形积分规则，已经能比 Euler 带来显著精度提升。另一类则更进一步，用 `GP` 直接建模旋转校正后的加速度信号。由于 `GP` 在线性算子作用下仍保持 `GP` 结构，因此可以解析地推导积分和双重积分结果。
 
 作者给出的示例显示，这种非参数、`model-less` 的连续表示，在速度和位置积分精度上都优于分段线性方法。不过，`GP` 中 kernel 的超参数会直接控制信号平滑度，因此既可以通过数据学习得到，也可以用经验方式设定。
+
+`Figure 11.3` 的上排展示了基于分段线性近似的连续积分，对应 constant-jerk motion assumption；下排展示了使用 `Gaussian Process` regression 的 model-free 连续积分。
 
 #### 11.2.3.3 连续旋转预积分
 
@@ -401,7 +411,18 @@ b˙a(t) = η^ba                                          (11.32)
 
 比四个标准不可观方向更令人头痛的是，某些运动模式会进一步扩大 observability matrix 的 null space，从而引入新的不可观方向。作者将这类情况称为 degenerate motions。
 
-例如，纯平移会使系统的全局姿态都变得不可观，因为缺少转动时，重力测量和 accelerometer bias 之间更容易发生混淆；而常加速度、纯旋转，以及对 monocular 相机而言“朝着特征点正向前进”的运动，则会导致尺度不可观或特征尺度不可观。尤其对 monocular visual-inertial 系统来说，这些退化运动会直接影响是否能稳定恢复 scene scale。
+例如，纯平移会使系统的全局姿态都变得不可观，因为缺少转动时，重力测量和 accelerometer bias 之间更容易发生混淆；而常加速度、纯旋转，以及对 monocular 相机而言“朝着特征点正向前进”的运动，则会导致尺度不可观或特征尺度不可观。这里作者还特别说明，这三类退化结论成立的前提是：传感器到特征的距离要显著大于传感器与机器人机体之间的外参平移（若二者并不重合），也就是通常满足 `||p_f^c|| >> ||p_b^c||`。尤其对 monocular visual-inertial 系统来说，这些退化运动会直接影响是否能稳定恢复 scene scale。
+
+作者还补充指出：若完全不使用 `IMU`，那么 landmark-based `SLAM` 的 null space 至少会是 `6-dimensional`，因为此时除了整个系统的 `3D position` 之外，完整的 `3D rotation` 也同样不可观。
+
+表 `11.1` 总结了 `AINS` 的退化运动。
+
+| 运动（Motion） | 传感器（Sensor） | 不可观量（Unobservable） |
+| --- | --- | --- |
+| 1. 纯平移（Pure translation） | 通用（General） | 全局朝向（Global orientation） |
+| 2. 常加速度（Constant acceleration） | 单目相机（Mono cam） | 系统尺度（System scale） |
+| 3. 纯旋转（Pure rotation） | 单目相机（Mono cam） | 特征尺度（Feature scale） |
+| 4. 朝着点特征前进（Moving toward point feature） | 单目相机（Mono cam） | 特征尺度（Feature scale） |
 
 因此，一个好的估计系统不仅依赖传感器质量，也依赖 sufficiently exciting 的运动激励。很多时候，问题并不是“算法失效”，而是机器人当前的运动本身没有向系统提供足够的信息。
 
@@ -413,7 +434,11 @@ b˙a(t) = η^ba                                          (11.32)
 
 正如前文所述，惯性测量通常会与其他传感器融合，以减轻纯 inertial odometry 的漂移。本节重点讨论将 camera 与 `IMU` 通过 factor graph 融合的情形。Camera 和 `IMU` 是非常流行的一对组合，因为它们都 inexpensive、lightweight、low-power，而且高度互补: `IMU` 擅长捕捉快速 acceleration 与 rotation，camera 则擅长提供丰富的环境观测信息。一方面，camera 的加入显著降低了纯惯性解的漂移；另一方面，`IMU` 又能让某些纯视觉下不可观的量变得可观，例如 monocular `SLAM` 中的场景尺度，只要运动本身不是退化的。
 
+作者也提醒，在机器人领域中，惯性数据同样常与其他传感器结合使用，包括 `LiDAR` 和 radar，可参见第 `8` 章与第 `9` 章。
+
 `VIO` 通常被当作 odometry source 使用，也常被直接用于 trajectory tracking 与 control loop closure。在另一些应用，例如虚拟现实，`VIO` 则负责补偿用户在虚拟环境中的运动。无论是哪种应用，系统都要求非常低的延迟，典型量级在 `10-50 ms`。作者举例说，`Meta Quest 3` 的刷新率大约在 `72-120 Hz` 之间，因此 `VIO` latency 会直接影响用户体验，甚至影响 motion sickness；而对轨迹跟踪控制来说，过大的延迟则会诱发控制器不稳定。
+
+`Figure 11.4` 展示了一个使用 preintegrated `IMU` factors 的 visual-inertial odometry factor graph 示例 [335]：紫色为 preintegrated `IMU` factors，用于约束连续位姿、速度与 bias；蓝色为 bias factors，用于约束 `IMU` bias 随时间的演化；橙色为视觉因子，用于关联 camera poses 与外部 landmarks；黑色则是 priors。
 
 正因如此，基于 factor graph 的 `VIO` 系统通常采用 `fixed-lag smoother`，也就是 `sliding-window optimization`。系统只估计一个 receding horizon 内的状态，例如最近 `5-10` 秒，而不是整条历史轨迹。图 `11.4` 展示了一个典型因子图: 紫色是 preintegrated `IMU` factors，用于约束连续关键帧之间的 pose、velocity 与 bias；蓝色是 bias factors，用于约束 `IMU` bias 随时间的演化；橙色是视觉因子，把 camera poses 与外部 landmarks 连接起来；黑色则是 priors。
 
