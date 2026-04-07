@@ -1,0 +1,32 @@
+# Translation Status
+
+- Source: `/home/suja/slam-handbook-public-release/main.pdf`
+- Output: `/home/suja/slam-handbook-public-release/main.zh-preview.md`
+- Split output: `/home/suja/slam-handbook-public-release/context/Chapter*.md`
+- Scope: `封面信息`、`前言`、`目录` 与 `Chapter 1` 到 `Chapter 12`
+- Last completed section: `12.6 延伸阅读与最新趋势`
+- Next section: `继续全书逐字精校（图表、图注、公式密集处优先）`
+- Terminology decisions:
+  - `SLAM`, `IMU`, `LiDAR`, `RANSAC`, `GPS`, `WiFi` -> 保留英文缩写
+  - `Factor Graph` -> `Factor Graph（因子图）`，后续按上下文保留英文主词
+  - `Lie group`, `Lie algebra`, `Gaussian Process`, `MAP`, `Bundle Adjustment` -> 首次关键处可中英对照，之后按英文主词复用
+  - `Radar`, `event camera`, `Visual Odometry`, `VIO`, `PGO`, `Schur complement`, `Fisher Information Matrix`, `Cramér-Rao Lower Bound` -> 关键处保留英文或中英对照
+  - 专业算法名、模型名、库名 -> 以英文为主，必要时补中文
+- Open issues:
+  - `main.pdf` 通过 `ghostscript txtwrite` 抽取文本，个别位置存在分页噪声、连字与标题断裂；已按章节/小节边界人工清理后翻译
+  - 当前译文已覆盖 `Chapter 1` 到 `Chapter 12` 的完整章节结构；对专业术语保留英文或首次中英对照，避免压缩式省略
+  - `2026-04-03` 已生成双模式交付：统一全文文件保留不变；拆分模式输出为 `/home/suja/slam-handbook-public-release/context/Chapter1.md` 到 `Chapter12.md`
+  - `2026-04-03` 已完成全书编号小节结构对齐校验；在限制到 `Chapter 1-12` 后，源文抽取与中文译稿均识别到 `288` 个编号小节，集合完全一致，无缺失编号
+  - 第 `9` 到 `12` 章已从先前的压缩式概述，重写为完整叙述版译文；其余此前偏短的小节也已结合源文逐项补全或人工确认无实质遗漏
+  - `2026-04-03` 再次直接对照 `main.pdf` 抽取文本后，继续补回的摘要化小节包括：`1.7.2`、`3.4`、`4.2.1`、`4.2.2`、`4.2.3`、`4.3.1`、`4.3.2`、`4.4.2`、`7.4.2`、`7.4.4`、`7.5`、`7.8.1`、`9.4.1`、`10.1.1`、`10.7.1`、`10.7.2`、`11.2.1`、`11.5`
+  - `2026-04-03` 继续逐节对照 `main.pdf` 后，再补回并扩写的高风险小节包括：`3.2.1`、`3.2.2`、`4.5`、`5.1.1`、`5.2.1`、`5.3.1`、`7.9`、`8.4.1`、`8.5`、`9.2.4`、`9.4.2`、`9.5`、`10.3`、`10.4.1`、`11.1.1`、`11.4.1`、`12.1.4`、`12.5.1`
+  - `2026-04-03` 最后一轮直接对照 `main.pdf` 后，已补回并细化剩余高风险小节：`3.3.2`、`6.3`
+  - `2026-03-30` 至 `2026-04-03` 精确校验中已确认并修补的压缩小节包括：`2.1.5.4`、`2.2.4.2`、`2.2.4.1`、`5.3.2.1`、`5.3.2.2`、`5.3.2.3`、`5.3.2.4`、`5.3.2.5`、`5.3.2.6`、`5.3.3.1`、`5.3.3.2`、`5.3.3.3`、`5.3.3.4`、`5.4.4.1`、`5.4.4.2`、`5.4.4.4`、`5.4.5.1`、`6.1.2.1`、`6.1.2.2`、`6.1.2.3`、`6.1.2.4`、`6.1.2.5`、`6.1.3`、`6.1.4.1`、`6.1.4.2`、`6.2.1`、`6.2.2`、`7.3.1.1`、`7.3.2.1`、`7.3.2.2`、`7.3.3`、`7.3.4`、`7.3.6`、`7.7`、`8.1`、`8.2.1.1`、`8.2.1.2`、`8.2.2.1` 到 `8.3.3` 中若干段落、`8.4.3.1`、`9.1.1.1`、`9.1.2.1`、`9.1.2.2`、`9.1.2.4`、`9.1.2.5`、`9.1.3.1`、`9.1.4`、`9.2.1`、`9.2.5`、`11.2.2.1`、`11.2.2.2`、`11.2.2.3`、`11.2.2.4`、`11.2.3.1`、`11.2.3.2`、`11.2.3.3`、`11.3.1.1`、`11.3.1.2`、`11.3.2`、`12.1.5`、`12.1.6.1`、`12.1.6.2`、`12.1.6.3`、`12.2.1`、`12.2.2`、`12.3`、`12.3.4`、`12.4.2.1`、`12.4.2.2`、`12.4.2.3`；这些位置现已补回方法分类、公式定义、图结构解释、关键测量模型、可观测性细节与硬件工作原理
+  - `2026-04-03` 在更严格的“短节 vs 正文源文”复核中，又补全了此前仍有压缩迹象的段落：`1.4.1`、`1.4.2`、`7.8.2`、`8.2.1`、`8.2.3`、`8.4`、`11.3.1`
+  - `2026-04-03` 以上修订已重新同步到 `/home/suja/slam-handbook-public-release/context/Chapter1.md` 到 `Chapter12.md`，章节切分与统一全文再次校验一致
+  - `2026-04-07` 再次直接对照 `main.pdf` / `/tmp/slam-main-20260403.txt` 后，补回的高风险缺漏包括：`1.1.1`、`1.2.2`、`2.1.2`、`3.3`、`3.3.1`、`4.2`、`4.4.1`、`5.1.2`、`6.1.3`、`7.4.1`、`7.7`、第 `8` 章章首历史引言、`8.2` 开头引言、`8.3/8.4` 标题层级、`9` 章本章概览、`9.1.1` 图 `9.2` 说明、`9.5` 表 `9.1`、`10` 章本章概览、`10.6` 表 `10.1`、`10.7.2` 表 `10.2`、`11` 章本章概览/`11.1` 基础脚注说明、`12` 章本章概览、`12.4.1`、`12.4.2`
+  - `2026-04-07` 上述修订已重新同步到 `/home/suja/slam-handbook-public-release/context/Chapter1.md` 到 `Chapter12.md`
+  - `2026-04-07` 继续直接对照 `main.pdf` / `/tmp/slam-main-20260403.txt` 后，又补回并细化了以下明确缺漏：第 `9` 章章首 `undersubscribed` 误译；`10.1.1` 的图 `10.1` 与图 `10.2` 说明；表 `10.1`、表 `10.2` 的标题/附注；`11.1.2` 的静态初始化公式 `(11.6)` 与高端 `IMU` 解析对准公式 `(11.7)`；`12.4.2.1` 中 `Figure 12.7a` 的明确引入、四类因子说明，以及 `C_i / C_j` 与 `(12.15)` 的符号对应；第 `7` 章章首概览；`8.2.2.1` 中 `10 Hz -> 0.1 s` 与 `rolling shutter effect` 两条脚注式说明；第 `7` 章 `Figure 7.1-7.16` captions；第 `8` 章 `Figure 8.1-8.12` captions
+  - 仍需继续人工核验的高风险小节包括：`newly inserted chapter 7/8 figure captions should receive one fresh integrity pass`; `remaining whole-book figure/table captions outside chapters 7-12 still need exact audit`; `broader exact audit remains in progress for any residual short leaf sections or footnote-like omissions`; `do not yet treat the handbook as final-complete solely from the status file`
+- Resume instruction:
+  - `Maintain /home/suja/slam-handbook-public-release/main.zh-preview.md as the source of truth. Continue direct-PDF exact audit section by section, prioritizing newly patched table/caption/formula-heavy sections, while keeping /home/suja/slam-handbook-public-release/context/Chapter*.md synchronized after every repair. Do not claim full completion unless a fresh whole-book audit finds no remaining compressed or omitted passages.`
